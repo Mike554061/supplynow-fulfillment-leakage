@@ -1,0 +1,567 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Fulfillment Leakage — SupplyNow</title>
+<style>
+  :root {
+    --ground: #F4F6F8;
+    --surface: #FFFFFF;
+    --raised: #EAEEF2;
+    --line: #DBE1E8;
+    --ink: #151A21;
+    --muted: #5A6675;
+    --faint: #8A96A5;
+    --accent: #0E7C7B;
+    --accent-soft: #0E7C7B1A;
+    --accent-hover: #0B6360;
+    --good: #2F9E68;
+    --watch: #C99A2E;
+    --critical: #CB4B3A;
+    --good-soft: #2F9E681A;
+    --watch-soft: #C99A2E1F;
+    --critical-soft: #CB4B3A1A;
+    --bar-track: #E4E9EF;
+    --shadow: 0 1px 2px rgba(20,26,33,.06), 0 4px 16px rgba(20,26,33,.05);
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", "Menlo", monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, "Helvetica Neue", sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground: #0D1117; --surface: #151B23; --raised: #1D2530; --line: #262F3B;
+      --ink: #E7ECF1; --muted: #93A0B0; --faint: #66727F;
+      --accent: #33ABA6; --accent-soft: #33ABA622; --accent-hover: #4Fc0bb;
+      --good: #46B87E; --watch: #DCB253; --critical: #E4664F;
+      --good-soft: #46B87E1F; --watch-soft: #DCB25322; --critical-soft: #E4664F1F;
+      --bar-track: #222B36;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 6px 20px rgba(0,0,0,.28);
+    }
+  }
+  :root[data-theme="light"] {
+    --ground: #F4F6F8; --surface: #FFFFFF; --raised: #EAEEF2; --line: #DBE1E8;
+    --ink: #151A21; --muted: #5A6675; --faint: #8A96A5;
+    --accent: #0E7C7B; --accent-soft: #0E7C7B1A; --accent-hover: #0B6360;
+    --good: #2F9E68; --watch: #C99A2E; --critical: #CB4B3A;
+    --good-soft: #2F9E681A; --watch-soft: #C99A2E1F; --critical-soft: #CB4B3A1A;
+    --bar-track: #E4E9EF;
+    --shadow: 0 1px 2px rgba(20,26,33,.06), 0 4px 16px rgba(20,26,33,.05);
+  }
+  :root[data-theme="dark"] {
+    --ground: #0D1117; --surface: #151B23; --raised: #1D2530; --line: #262F3B;
+    --ink: #E7ECF1; --muted: #93A0B0; --faint: #66727F;
+    --accent: #33ABA6; --accent-soft: #33ABA622; --accent-hover: #4Fc0bb;
+    --good: #46B87E; --watch: #DCB253; --critical: #E4664F;
+    --good-soft: #46B87E1F; --watch-soft: #DCB25322; --critical-soft: #E4664F1F;
+    --bar-track: #222B36;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 6px 20px rgba(0,0,0,.28);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--ground); color: var(--ink);
+    font-family: var(--sans); line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 40px 24px 80px; }
+
+  .eyebrow {
+    font-size: 11px; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--accent); font-weight: 700; margin: 0 0 10px;
+  }
+  h1 {
+    font-size: clamp(28px, 4.5vw, 40px); font-weight: 800; letter-spacing: -.02em;
+    margin: 0 0 8px; text-wrap: balance;
+  }
+  .sub { color: var(--muted); font-size: 15px; margin: 0; max-width: 62ch; }
+  .sub b { color: var(--ink); font-weight: 600; }
+
+  /* hero stats */
+  .stats {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin: 32px 0 8px;
+  }
+  .stat {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+    padding: 18px 18px 16px; box-shadow: var(--shadow);
+  }
+  .stat.hero-loss { border-color: color-mix(in srgb, var(--critical) 40%, var(--line)); }
+  .stat .k {
+    font-family: var(--mono); font-variant-numeric: tabular-nums; font-weight: 600;
+    font-size: clamp(22px, 3vw, 30px); letter-spacing: -.02em; line-height: 1.05;
+  }
+  .stat.hero-loss .k { color: var(--critical); }
+  .stat .lbl { font-size: 12px; color: var(--muted); margin-top: 8px; line-height: 1.35; }
+
+  section { margin-top: 44px; }
+  .sec-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 4px; flex-wrap: wrap; }
+  h2 { font-size: 18px; font-weight: 700; letter-spacing: -.01em; margin: 0; }
+  .sec-note { font-size: 12.5px; color: var(--muted); margin: 4px 0 18px; }
+
+  /* metro bars */
+  .metros { display: flex; flex-direction: column; gap: 2px; }
+  .metro {
+    display: grid; grid-template-columns: 128px 1fr 96px; align-items: center; gap: 14px;
+    padding: 9px 12px; border-radius: 9px; cursor: pointer; border: 1px solid transparent;
+    transition: background .12s, border-color .12s;
+  }
+  .metro:hover { background: var(--surface); }
+  .metro.active { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
+  .metro .mname { font-weight: 600; font-size: 14px; display: flex; align-items: center; gap: 8px; }
+  .metro .mmeta { font-size: 11px; color: var(--faint); font-weight: 400; font-family: var(--mono); }
+  .track { height: 22px; background: var(--bar-track); border-radius: 5px; overflow: hidden; position: relative; }
+  .fill-bar { height: 100%; background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 78%, #000 0%)); border-radius: 5px; min-width: 3px; }
+  .metro .amt { font-family: var(--mono); font-variant-numeric: tabular-nums; text-align: right; font-weight: 600; font-size: 14px; }
+
+  .chip {
+    display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600;
+    padding: 2px 8px; border-radius: 999px; font-family: var(--mono); font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .chip::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: .9; }
+  .chip.good { color: var(--good); background: var(--good-soft); }
+  .chip.watch { color: var(--watch); background: var(--watch-soft); }
+  .chip.critical { color: var(--critical); background: var(--critical-soft); }
+
+  /* filter bar */
+  .filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }
+  .fbtn {
+    font-family: var(--sans); font-size: 12.5px; font-weight: 600; color: var(--muted);
+    background: var(--surface); border: 1px solid var(--line); border-radius: 999px;
+    padding: 5px 13px; cursor: pointer; transition: all .12s;
+  }
+  .fbtn:hover { border-color: var(--accent); color: var(--ink); }
+  .fbtn.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  @media (prefers-color-scheme: dark) { .fbtn.on { color: #06231f; } }
+  :root[data-theme="light"] .fbtn.on { color: #fff; }
+  :root[data-theme="dark"] .fbtn.on { color: #06231f; }
+  .fspacer { flex: 1; }
+  .sortlbl { font-size: 11.5px; color: var(--faint); text-transform: uppercase; letter-spacing: .08em; }
+
+  /* account leaderboard */
+  .board { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; box-shadow: var(--shadow); }
+  .row-head, .arow {
+    display: grid; grid-template-columns: 24px 1fr 96px 74px 132px; align-items: center; gap: 12px;
+    padding: 11px 18px;
+  }
+  .row-head {
+    font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--faint);
+    font-weight: 700; border-bottom: 1px solid var(--line);
+  }
+  .row-head .r { text-align: right; }
+  .arow { border-bottom: 1px solid var(--line); cursor: pointer; transition: background .1s; }
+  .arow:last-child { border-bottom: none; }
+  .arow:hover { background: var(--raised); }
+  .arow .caret { color: var(--faint); font-size: 11px; transition: transform .15s; font-family: var(--mono); }
+  .arow.open .caret { transform: rotate(90deg); color: var(--accent); }
+  .acct { min-width: 0; }
+  .acct .an { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .acct .am { font-size: 11px; color: var(--faint); }
+  .arow .ord { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 13px; color: var(--muted); text-align: right; }
+  .arow .fillcell { text-align: right; }
+  .arow .shortcell { display: flex; align-items: center; gap: 9px; justify-content: flex-end; }
+  .arow .minibar { height: 7px; border-radius: 3px; background: var(--critical); opacity: .75; min-width: 3px; }
+  .arow .sd { font-family: var(--mono); font-variant-numeric: tabular-nums; font-weight: 600; font-size: 13.5px; width: 62px; text-align: right; }
+
+  .drawer { display: none; padding: 4px 18px 20px 54px; background: var(--raised); border-bottom: 1px solid var(--line); }
+  .arow.open + .drawer { display: block; }
+  .drawer .dh { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--accent); font-weight: 700; margin: 12px 0 10px; }
+  .skus { display: flex; flex-direction: column; gap: 1px; }
+  .sku { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 12px; padding: 6px 0; border-bottom: 1px solid color-mix(in srgb, var(--line) 60%, transparent); }
+  .sku:last-child { border-bottom: none; }
+  .sku .sn { font-size: 13px; font-weight: 500; }
+  .sku .su { font-family: var(--mono); font-size: 11px; color: var(--faint); font-variant-numeric: tabular-nums; }
+  .sku .sc { font-family: var(--mono); font-size: 11.5px; font-weight: 600; color: var(--critical); white-space: nowrap; }
+  .sku-none { font-size: 12.5px; color: var(--muted); font-style: italic; padding: 6px 0; }
+
+  /* featured cards */
+  .feat { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 20px; box-shadow: var(--shadow); }
+  .card.flag { border-top: 3px solid var(--critical); }
+  .card .ctop { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 3px; }
+  .card .cname { font-weight: 700; font-size: 16px; letter-spacing: -.01em; }
+  .card .cmetro { font-size: 11px; color: var(--faint); text-transform: uppercase; letter-spacing: .06em; }
+  .card .cstats { display: flex; gap: 18px; margin: 14px 0 6px; }
+  .card .cstat .cv { font-family: var(--mono); font-variant-numeric: tabular-nums; font-weight: 600; font-size: 19px; }
+  .card .cstat.loss .cv { color: var(--critical); }
+  .card .cstat .cl { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .card .plh { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--accent); font-weight: 700; margin: 16px 0 8px; display: flex; align-items: center; gap: 7px; }
+  .precheck { display: flex; flex-direction: column; gap: 0; }
+
+  .chain { display: flex; flex-direction: column; gap: 1px; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; box-shadow: var(--shadow); }
+  .crow { display: grid; grid-template-columns: 60px 1fr 116px 92px; align-items: center; gap: 14px; padding: 10px 18px; border-bottom: 1px solid var(--line); }
+  .crow:last-child { border-bottom: none; }
+  .crow .cmetros { font-family: var(--mono); font-weight: 700; font-size: 12px; color: var(--accent); background: var(--accent-soft); border-radius: 6px; text-align: center; padding: 3px 0; }
+  .crow .citem { font-weight: 600; font-size: 14px; }
+  .crow .cupc { font-family: var(--mono); font-size: 11px; color: var(--faint); text-align: right; }
+  .crow .cmiss { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
+  .crow .cmbar { height: 7px; border-radius: 3px; background: var(--accent); opacity: .7; min-width: 3px; }
+  .crow .cmn { font-family: var(--mono); font-variant-numeric: tabular-nums; font-weight: 600; font-size: 13px; color: var(--muted); white-space: nowrap; }
+  @media (max-width: 720px) { .crow { grid-template-columns: 48px 1fr 84px; } .crow .cupc { display: none; } }
+  .foot { margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--line); font-size: 12px; color: var(--faint); }
+  .foot b { color: var(--muted); font-weight: 600; }
+
+  @media (max-width: 720px) {
+    .stats { grid-template-columns: repeat(2, 1fr); }
+    .feat { grid-template-columns: 1fr; }
+    .metro { grid-template-columns: 104px 1fr 78px; gap: 10px; }
+    .row-head, .arow { grid-template-columns: 20px 1fr 60px 108px; }
+    .row-head .ord-h, .arow .ord { display: none; }
+    .drawer { padding-left: 30px; }
+  }
+
+  /* ============ LOGIN GATE (mirrors sibling-fact-find) ============ */
+  #gate {
+    position: fixed; inset: 0; z-index: 3000; display: flex; align-items: center; justify-content: center;
+    padding: 20px; background: #0D1117;
+    background-image: radial-gradient(circle at 50% 0%, rgba(51,171,166,.14), transparent 60%);
+    font-family: var(--sans);
+  }
+  #gate .box {
+    width: 100%; max-width: 400px; background: #151B23; border: 1px solid #262F3B; border-radius: 16px;
+    padding: 30px 26px; text-align: center; box-shadow: 0 20px 60px rgba(0,0,0,.5);
+  }
+  #gate .brand { font-size: 11px; letter-spacing: .16em; text-transform: uppercase; color: #33ABA6; font-weight: 700; margin-bottom: 10px; }
+  #gate h1 { font-size: 20px; color: #E7ECF1; margin: 4px 0 2px; font-weight: 800; letter-spacing: -.01em; }
+  #gate .sub { font-size: 12.5px; color: #93A0B0; margin: 6px auto 20px; line-height: 1.5; max-width: none; }
+  #gate .sub b { color: #E7ECF1; }
+  #gate input {
+    width: 100%; background: #0D1117; border: 1px solid #262F3B; color: #E7ECF1; border-radius: 9px;
+    padding: 12px 13px; font-size: 15px; font-family: var(--sans); margin: 6px 0;
+  }
+  #gate input:focus { outline: none; border-color: #33ABA6; }
+  #gate button {
+    width: 100%; background: #33ABA6; color: #06231f; border: none; border-radius: 9px; padding: 12px;
+    font-size: 15px; font-weight: 700; font-family: var(--sans); cursor: pointer; margin-top: 10px;
+    text-transform: uppercase; letter-spacing: .04em;
+  }
+  #gate button:hover { background: #4Fc0bb; }
+  #gate .row2 { display: flex; gap: 8px; }
+  #gate .row2 input { width: 50%; }
+  #gMsg { font-size: 12.5px; margin-top: 12px; min-height: 16px; }
+  #gBack { color: #93A0B0; font-size: 12px; display: inline-block; margin-top: 12px; cursor: pointer; text-decoration: underline; }
+  #gate .gfine { font-size: 11px; color: #66727F; margin-top: 16px; line-height: 1.5; }
+</style>
+</head>
+<body>
+
+<!-- ============ LOGIN GATE ============ -->
+<div id="gate">
+  <div class="box">
+    <div class="brand">SupplyNow · Internal</div>
+    <h1>Fulfillment Leakage</h1>
+    <div class="sub">Named-account order reconciliation with shortfall dollars. Restricted to SupplyNow. Enter your details to access.</div>
+    <div id="gstep1">
+      <div class="row2"><input id="gName" placeholder="Full name" autocomplete="name"><input id="gCo" placeholder="Company" autocomplete="organization"></div>
+      <input id="gEmail" placeholder="you@company.com" type="email" autocomplete="email">
+      <input id="gPhone" placeholder="Mobile (optional)" type="tel" autocomplete="tel">
+      <button id="gSend">Send access code</button>
+    </div>
+    <div id="gstep2" style="display:none">
+      <div class="sub">Enter the 6-digit code sent to <b id="gEmailShow"></b>.</div>
+      <input id="gCode" placeholder="6-digit code" inputmode="numeric" maxlength="6">
+      <button id="gVerify">Verify &amp; enter</button>
+      <span id="gBack">← use different details</span>
+    </div>
+    <div id="gMsg"></div>
+    <div class="gfine">Property of SupplyNow Solutions</div>
+  </div>
+</div>
+
+<!-- ============ LEAKAGE BOARD (hidden until authed) ============ -->
+<div id="app" style="display:none">
+<div class="wrap">
+  <p class="eyebrow">SupplyNow · Order Reconciliation</p>
+  <h1>Fulfillment Leakage</h1>
+  <p class="sub">Product that was <b>ordered but never delivered</b> — every reconciled Restaurant&nbsp;Depot order, <b id="daterange"></b>. Ranked by where the money leaks, drilled to the SKUs that keep coming up short. Click a metro to filter; click an account for its pre-check list.</p>
+
+  <div class="stats" id="stats"></div>
+
+  <section>
+    <div class="sec-head"><h2>Where it leaks — by metro</h2></div>
+    <p class="sec-note">Bar length = total dollars short. Chip = mean fill rate. Pittsburgh alone is ~39% of all leakage.</p>
+    <div class="metros" id="metros"></div>
+  </section>
+
+  <section>
+    <div class="sec-head"><h2>Account leaderboard</h2><span class="sortlbl" id="count"></span></div>
+    <p class="sec-note">Top 30 named accounts by dollars short. A high fill rate with big dollars short means a few large items keep getting missed — click to see which.</p>
+    <div class="filters" id="filters"></div>
+    <div class="board">
+      <div class="row-head">
+        <span></span><span>Account</span><span class="r ord-h">Orders</span><span class="r">Fill</span><span class="r">Short&nbsp;$</span>
+      </div>
+      <div id="rows"></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head"><h2>The two you fix first</h2></div>
+    <p class="sec-note">Highest-value chronic under-fillers. These SKU lists are the real-time pre-check: flag them before the selector starts the order.</p>
+    <div class="feat" id="feat"></div>
+  </section>
+
+  <section>
+    <div class="sec-head"><h2>Systemic RD stockouts — raise with Restaurant Depot</h2></div>
+    <p class="sec-note">These short across <b>multiple metros</b> — an RD supply gap, not a picking miss. 42% of all leakage ($27,839) touches one. Pre-source these or take the list to your RD rep.</p>
+    <div class="chain" id="chain"></div>
+  </section>
+
+  <div class="foot">
+    Source: <b>Reconcile_by_Date · RD_Order_History</b>, <span id="foot-range"></span> · <b id="foot-orders"></b> reconciled orders · leakage = Σ Variance&nbsp;$ (Start Subtotal − Final Subtotal). Item counts = times a SKU appeared in an order's <b>Unavailable Items</b>. Per-item dollar impact isn't in the recon sheet — frequency is the pre-check signal.
+  </div>
+</div>
+</div>
+
+<script id="data" type="application/json">
+{
+  "meta": { "date_range": "May 24 – Jul 28, 2026", "reconciled_orders": 1706, "total_subtotal": 1856907, "total_variance": 67025, "variance_pct": 3.6, "annual": 376000, "systemic_dollars": 27839, "systemic_pct": 41.5 },
+  "chain_wide": [
+    { "item": "Sunset 2-Ply Dinner Napkins — 3000 ct", "upc": "76069502567", "metros": 5, "misses": 9 },
+    { "item": "Grape Tomatoes — 2 lbs", "upc": "2060040680", "metros": 5, "misses": 5 },
+    { "item": "Peeled Garlic", "upc": "2060044146", "metros": 4, "misses": 11 },
+    { "item": "Chef's Quality Canola Frying Oil HD — 35 lbs", "upc": "76069500938", "metros": 4, "misses": 8 },
+    { "item": "Cauliflower", "upc": "74069569999", "metros": 4, "misses": 8 },
+    { "item": "Chef's Quality Chocolate Drops — 25 lbs", "upc": "76069501150", "metros": 4, "misses": 7 },
+    { "item": "Pre-Bagged Parsley — 1 lb", "upc": "3022301457", "metros": 4, "misses": 6 },
+    { "item": "Chef's Quality Mayonnaise — gallon", "upc": "76069500350", "metros": 4, "misses": 6 },
+    { "item": "Boneless Skinless Chicken Breast Tenders", "upc": "20772320000", "metros": 4, "misses": 6 },
+    { "item": "Extra Large Plum Tomatoes — 25 lbs", "upc": "2060042762", "metros": 4, "misses": 5 },
+    { "item": "Russet Potato 50 lb, 100 ct #1", "upc": "2060042724", "metros": 4, "misses": 5 },
+    { "item": "Driscoll Strawberries", "upc": "71575620002", "metros": 4, "misses": 5 },
+    { "item": "Dawn Professional Dish Liquid — gallon", "upc": "3700008310", "metros": 4, "misses": 5 },
+    { "item": "Supremo Nacho Sliced Jalapeños — gallon", "upc": "76069501214", "metros": 4, "misses": 5 },
+    { "item": "James Farm Cottage Cheese", "upc": "76069502477", "metros": 4, "misses": 5 }
+  ],
+  "metros": [
+    { "metro": "Pittsburgh", "orders": 304, "mean_fill": 87.5, "short_dollars": 25904 },
+    { "metro": "Cleveland", "orders": 401, "mean_fill": 93.5, "short_dollars": 13735 },
+    { "metro": "Dearborn", "orders": 115, "mean_fill": 89.6, "short_dollars": 10223 },
+    { "metro": "Indianapolis", "orders": 61, "mean_fill": 86.3, "short_dollars": 4102 },
+    { "metro": "Ypsilanti", "orders": 93, "mean_fill": 88.9, "short_dollars": 2921 },
+    { "metro": "Troy", "orders": 61, "mean_fill": 89.6, "short_dollars": 2844 },
+    { "metro": "Columbus", "orders": 165, "mean_fill": 92.6, "short_dollars": 2683 },
+    { "metro": "Akron", "orders": 100, "mean_fill": 96.1, "short_dollars": 1881 },
+    { "metro": "Wilkes-Barre", "orders": 372, "mean_fill": 97.4, "short_dollars": 1781 }
+  ],
+  "accounts": [
+    { "business": "ISKCON", "metro": "Pittsburgh", "orders": 18, "mean_fill": 83.8, "short_dollars": 7706, "items": [["Driscoll Blueberries — 18 oz","2060050330",4],["Elephant King Extra Firm Tofu — 19 oz","81002524182",4],["Jarritos Lime Soda — 24/12.5 oz","9047821048",4],["Italian Parsley — 24 ct","74069580120",3],["Domino Granulated Sugar — 50 lb bag","4920000950",3],["Barilla Penne Rigate — 2/10 lbs","7680803924",3],["Frozen Whole Strawberries — 10 lbs","76069501012",3],["Delicia Tamarind Concentrate — 32 oz","72998400031",2]] },
+    { "business": "SVS Foods LLC", "metro": "Pittsburgh", "orders": 9, "mean_fill": 88.6, "short_dollars": 1721, "items": [["Chef's Quality Pure Peanut Oil — 35 lbs","76069500933",3],["Chakoah Coconut Milk — 24/13 oz","4473801843",2],["Orange Bell Peppers — 5 lbs","2060040316",2],["Cauliflower","74069569999",2],["Pine-Sol Multi-Surface — 80 oz","4460060608",2],["Lysol All Purpose Cleaner — 32 oz","1920000351",2]] },
+    { "business": "All India Pitt Cuisine", "metro": "Pittsburgh", "orders": 3, "mean_fill": 85.4, "short_dollars": 1505, "items": [["Turner Dairy Heavy Whipping Cream — 32 oz","3573300083",3],["Isabella Petite Diced Tomatoes — #10","76069502533",1],["Chef's Quality All Purpose Salt — 50 lbs","76069502597",1],["Peeled Garlic — 5 lbs","2060070000",1]] },
+    { "business": "Mintt Indian Cuisine", "metro": "Pittsburgh", "orders": 8, "mean_fill": 88.9, "short_dollars": 1394, "items": [["Jumbo Chicken Leg Quarters","20790880000",2],["Chef's Quality Canola Frying Oil — 35 lbs","76069500938",2],["Chef's Quality Tomato Red Food Coloring — gal","76069500086",2],["Chef's Quality Egg Shade Food Coloring — gal","76069500076",2],["Lee Kum Kee Oyster Sauce — 5 lb can","74281230004",2]] },
+    { "business": "Crowne Plaza Columbus North", "metro": "Columbus", "orders": 10, "mean_fill": 90.3, "short_dollars": 1210, "items": [["Bagel Plain NY 6ct","4812195951",2],["Cantaloupes — 9/12 ct case","2060042537",2],["Kellogg's Froot Loops Cups — 6/1.5 oz","3800001246",1],["Kellogg's Frosted Flakes Cups — 6/2.1 oz","3800001468",1]] },
+    { "business": "Jewish Family Services of Washtenaw Cty", "metro": "Ypsilanti", "orders": 6, "mean_fill": 16.7, "short_dollars": 1190, "items": [["Beef Chuck Roll, Halal","20816540000",1]] },
+    { "business": "Admiral's Experience Inc", "metro": "Dearborn", "orders": 15, "mean_fill": 83.7, "short_dollars": 1159, "items": [["Darnel Foam Plate 3-comp 10.25\" — 125 ct","64566711787",7],["Cheez-It Original Club Pack — 45/1.5 oz","2410071717",3],["Frozen IQF Cut Corn — 2.5 lbs","76069501044",3],["Diced Cabbage — 5 lbs","2060044678",3],["Chef's Quality Garlic Powder — 18 oz","76069557322",3],["Sunset Farms Beef Smoked Sausage — 4 lb","2804200243",3]] },
+    { "business": "Mama Joyces LLC", "metro": "Cleveland", "orders": 15, "mean_fill": 95.3, "short_dollars": 1116, "items": [["Imported Dutch Smoked Gouda Loaf","20658870000",3],["Sliced White Mushrooms — 20 oz","2170694420",2],["ATK Polish Beef Sausage — 5 lbs","9222714280",2],["Scotch-Brite Liquid Griddle Cleaner","5112585780",2],["Frozen Ocean Perch Fillets — 10 lbs","75283032640",2]] },
+    { "business": "Biggby Coffee", "metro": "Cleveland", "orders": 9, "mean_fill": 95.7, "short_dollars": 1111, "items": [["Cucumbers — 24 ct","2060043411",1],["Nestle Pure Life Water — 40/0.5L","6827473533",1],["Frozen Salmon Fillet, Sushi Grade","20747090000",1]] },
+    { "business": "Hype Athletics", "metro": "Dearborn", "orders": 7, "mean_fill": 84.6, "short_dollars": 1099, "items": [["Vitaminwater Energy — 12 pk","78616210106",3],["Handi-Foil Half Deep Steam Pan — 100 ct","74938400321",2],["Frozen Krusteaz Pancake — 144 ct","8615120137",2],["James Farm Yellow American Cheese — 5 lbs","76069501585",2]] },
+    { "business": "Modern 7 Bistro", "metro": "Dearborn", "orders": 8, "mean_fill": 80.5, "short_dollars": 1097, "items": [["Peeled Tail-Off Shrimp 16/20 — 2 lb","81004390138",5],["Micro Orchid Flowers — 4 oz","84046513269",4],["Get Reddi Clear Poly Bags 18x24 — 250 ct","76293599764",3],["Flower Orchid Mix — 100 ct","84046513270",2],["Broccoli Florets — 4/3 lbs","2060044677",2]] },
+    { "business": "Secretos LLC", "metro": "Pittsburgh", "orders": 7, "mean_fill": 83.7, "short_dollars": 997, "items": [["Thank-You T-Shirt Bags — 500/cs","76069501222",3],["Morton Iodized Salt — 26 oz","2460001053",3],["Lysol All Purpose Cleaner — 32 oz","1920000351",2],["Grassland Salted Butter Quarters — 1 lb","7917600010",2],["Goya Mango Nectar — 24/9.6 oz","4133112746",2]] },
+    { "business": "The Meat Shop", "metro": "—", "orders": 8, "mean_fill": 79.6, "short_dollars": 904, "items": [["Raw P&D Shrimp Tail-Off 51/60 — 2 lb","85001052765",2],["Deen's Halal Sliced Beef Bacon — 5 lbs","79124139605",2],["Superior Angus Bottom Round Flats","20797450000",1],["Beef Inside Top Round","20770000000",1]] },
+    { "business": "Eagle Lake Community Assoc.", "metro": "Wilkes-Barre", "orders": 14, "mean_fill": 90.3, "short_dollars": 834, "items": [["Frozen Big C Battered Mozzarella Sticks — 7 lbs","76069500434",2],["Cucumbers — 5 lb bag","2060040115",1],["Chicken Party Wings — case","20774950000",1]] },
+    { "business": "Leos Coney Island (Sterling Hts)", "metro": "Troy", "orders": 2, "mean_fill": 81.3, "short_dollars": 669, "items": [["Detroit Sausage Breakfast Links — 10 lbs","74904800001",2],["Chipico Crinkle Pickles — 5 gal","7072355346",1],["Chef's Quality Mayonnaise — gal","76069500350",1]] },
+    { "business": "La Super Torta", "metro": "Columbus", "orders": 8, "mean_fill": 94.3, "short_dollars": 610, "items": [["Jarritos Fruit Punch — 24/12.5 oz","9047821046",3],["Chef's Quality Crushed Pineapple — #10","76069502080",3],["Supremo Shredded Mozzarella — 5 lbs","76069500450",1]] },
+    { "business": "Frutotrading", "metro": "Pittsburgh", "orders": 9, "mean_fill": 91.0, "short_dollars": 603, "items": [["Hazelnuts — 4.5 lbs","76069503549",3],["Bazzini Raw Shelled Pistachios — 3.25 lb","7506262128",1],["Turner's 2% Milk — gal","3573300031",1]] },
+    { "business": "Amici Restaurant & Bar", "metro": "Cleveland", "orders": 8, "mean_fill": 91.8, "short_dollars": 602, "items": [["Knorr Professional Chicken Bouillon — 7.9lb/4ct","4800137316",4],["Squid Rings & Tentacles — 2.5 lb","72992600519",2],["Frozen Big C Breaded Chicken Tenderloins — 10 lbs","76069502653",1],["Lemons — 5 lb bag","2060041117",1]] },
+    { "business": "Ziggys Pub & Rest", "metro": "Cleveland", "orders": 7, "mean_fill": 89.9, "short_dollars": 548, "items": [["Great Lakes Munster Sliced — 6/1.5L","3651414053",1],["All Purpose Bread — 5 lb","2439370896",1],["Bar Glass Low-Suds Cleaner — 100 ct","61852510580",1]] },
+    { "business": "Milky Way", "metro": "Pittsburgh", "orders": 7, "mean_fill": 85.6, "short_dollars": 542, "items": [["Chef's Quality Cut Hearts of Palm — 12/28 oz","76069501303",2],["Frozen Big C Sweet Potato Fries — 15 lbs","76069501366",2],["Chef's Quality Tartar Sauce — gal","76069521246",2]] },
+    { "business": "Cong. Bais Tzvi Yosef / Cheder Menachem", "metro": "Wilkes-Barre", "orders": 8, "mean_fill": 96.5, "short_dollars": 514, "items": [["Chef's Quality Chocolate Drops — 25 lbs","76069501150",3],["Sweet Golden Pineapples — 5-6 ct","2060043724",2],["Driscoll Strawberries","71575620002",2]] },
+    { "business": "El Cilantro Restaurant LLC", "metro": "Wilkes-Barre", "orders": 4, "mean_fill": 100.0, "short_dollars": 504, "items": [] },
+    { "business": "S & W Pizza Grill", "metro": "Cleveland", "orders": 10, "mean_fill": 92.3, "short_dollars": 496, "items": [["Schwebel 5\" Seeded Bun — 20 ct","7131900085",2],["Frozen Cooked Shrimp 91/110 — 5 lb","81004390142",2],["Gatorade 20 oz Variety — 24 ct","5200005886",2]] },
+    { "business": "The KC Pepper Bar & Grille", "metro": "Wilkes-Barre", "orders": 2, "mean_fill": 93.8, "short_dollars": 491, "items": [["Pasteurized Special Blue Crabmeat — 1 lb","81171700013",1]] },
+    { "business": "Wing King and Boiler Bags", "metro": "Cleveland", "orders": 14, "mean_fill": 90.6, "short_dollars": 482, "items": [["Schwebel's 'Taliano Sub Buns — 8 ct","7131900064",4],["Pepsi Cola — 24/20 oz","1200000129",3],["Red Peppers — 5 lb bag","2060040204",1],["Green Peppers Bagged — 5 lbs","2060040192",1]] },
+    { "business": "Union Bible College", "metro": "Indianapolis", "orders": 1, "mean_fill": 82.3, "short_dollars": 476, "items": [["Chef's Quality Mustard Packets — 500 ct","76069500289",1],["Barilla Penne Rigate — 2/10 lbs","7680803924",1],["Frozen Big C Breaded Chicken Chunks — 10 lb","76069502450",1]] },
+    { "business": "JB Credit Counseling", "metro": "Pittsburgh", "orders": 1, "mean_fill": 85.7, "short_dollars": 441, "items": [] },
+    { "business": "Sushi Kim 2 LLC", "metro": "Pittsburgh", "orders": 3, "mean_fill": 72.0, "short_dollars": 439, "items": [["Cooked P&D Shrimp Tail-Off 71/90 — 2 lb","81004390141",2],["Cooked P&D Shrimp Tail-On 31/40 — 2 lb","81004390140",2],["Frozen Cod 8oz Loin — 10 lbs","75283032790",2],["Yellow Onion — 10 lb bag","2060042547",1]] },
+    { "business": "Sabor Tacos LLC", "metro": "Dearborn", "orders": 7, "mean_fill": 93.1, "short_dollars": 430, "items": [["Supremo Nacho Sliced Jalapeños — gal","76069501214",1],["Dawn Professional Dish Liquid — gal","3700008310",1],["Chef's Quality Granulated Onion — 5 lb","76069557368",1]] },
+    { "business": "African Taste and Lounge LLC", "metro": "Cleveland", "orders": 8, "mean_fill": 89.8, "short_dollars": 425, "items": [["Red Bell Peppers, Bushel","2060071440",1],["Extra Large Plum Tomatoes — 25 lbs","2060042762",1],["Frozen Big C Seasoned Fries — 6/4.5 lbs","76069501281",1],["Jumbo White Onion — 25 lb","2061800046",1]] }
+  ],
+  "featured": [
+    { "business": "ISKCON", "metro": "Pittsburgh", "orders": 18, "mean_fill": 83.8, "short_dollars": 7706, "sub": "7× in the top-20 worst orders — the single biggest chronic leak in the book.",
+      "items": [["Driscoll Blueberries — 18 oz","2060050330",4],["Elephant King Extra Firm Tofu — 19 oz","81002524182",4],["Jarritos Lime Soda — 24/12.5 oz","9047821048",4],["Italian Parsley — 24 ct","74069580120",3],["Domino Granulated Sugar — 50 lb bag","4920000950",3],["Barilla Penne Rigate — 2/10 lbs","7680803924",3],["Frozen Whole Strawberries — 10 lbs","76069501012",3],["Full Red Tomato Puree — #10 can","7193301131",2],["Jarritos Passion Fruit — 24 ct","9047800194",2],["Idaho Potato — 60 ct","2060043449",2]] },
+    { "business": "Dearborn metro", "metro": "3 accounts drive it", "orders": 115, "mean_fill": 89.6, "short_dollars": 10223, "sub": "Admiral's, Hype Athletics & Modern 7 = $3.4K of the $10.2K. Foam plates & shrimp lead.",
+      "items": [["Darnel Foam Plate 3-comp 10.25\" — 125 ct","64566711787",7],["Peeled Tail-Off Shrimp 16/20 — 2 lb","81004390138",5],["Frozen IQF Cut Corn — 2.5 lbs","76069501044",4],["Chef's Quality Garlic Powder — 18 oz","76069557322",4],["Micro Orchid Flowers — 4 oz","84046513269",4],["Cheez-It Original Club Pack — 45/1.5 oz","2410071717",3],["Diced Cabbage — 5 lbs","2060044678",3],["Sara Lee White Hamburger Buns — 16 ct","7294560164",3],["Vitaminwater Energy — 12 pk","78616210106",3],["Hormel Oven Roasted Turkey Breast — 2 lbs","3760017108",3]] }
+  ]
+}
+</script>
+
+<script>
+(function () {
+  var D = JSON.parse(document.getElementById("data").textContent);
+  var usd = function (n) { return "$" + Math.round(n).toLocaleString("en-US"); };
+  var sev = function (f) { return f >= 95 ? "good" : (f >= 90 ? "watch" : "critical"); };
+
+  // ---- hero stats
+  var m = D.meta;
+  var stats = [
+    { cls: "stat hero-loss", k: usd(m.total_variance), l: "Product short-picked — ordered, not delivered" },
+    { cls: "stat", k: m.variance_pct + "%", l: "of " + usd(m.total_subtotal) + " reconciled sales" },
+    { cls: "stat", k: "~" + usd(m.annual), l: "annualized run-rate at this pace" },
+    { cls: "stat", k: m.reconciled_orders.toLocaleString("en-US"), l: "reconciled orders · 9 metros · " + m.date_range }
+  ];
+  document.getElementById("stats").innerHTML = stats.map(function (s) {
+    return '<div class="' + s.cls + '"><div class="k">' + s.k + '</div><div class="lbl">' + s.l + '</div></div>';
+  }).join("");
+  document.getElementById("daterange").textContent = m.date_range;
+  document.getElementById("foot-range").textContent = m.date_range;
+  document.getElementById("foot-orders").textContent = m.reconciled_orders.toLocaleString("en-US");
+
+  // ---- metros
+  var maxMetro = Math.max.apply(null, D.metros.map(function (x) { return x.short_dollars; }));
+  var metroEl = document.getElementById("metros");
+  metroEl.innerHTML = D.metros.map(function (x) {
+    var w = Math.max(3, (x.short_dollars / maxMetro) * 100);
+    return '<div class="metro" data-metro="' + x.metro + '">' +
+      '<div><div class="mname">' + x.metro + '</div><div class="mmeta">' + x.orders + ' ord</div></div>' +
+      '<div class="track"><div class="fill-bar" style="width:' + w + '%"></div></div>' +
+      '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">' +
+        '<div class="amt">' + usd(x.short_dollars) + '</div>' +
+        '<span class="chip ' + sev(x.mean_fill) + '">' + x.mean_fill.toFixed(1) + '%</span>' +
+      '</div></div>';
+  }).join("");
+
+  // ---- filters
+  var activeMetro = null;
+  var sortKey = "short_dollars";
+  var metroNames = D.metros.map(function (x) { return x.metro; });
+  var fEl = document.getElementById("filters");
+  fEl.innerHTML =
+    '<button class="fbtn on" data-f="all">All metros</button>' +
+    metroNames.map(function (n) { return '<button class="fbtn" data-f="' + n + '">' + n + '</button>'; }).join("") +
+    '<span class="fspacer"></span>' +
+    '<span class="sortlbl">Sort</span>' +
+    '<button class="fbtn on" data-sort="short_dollars">Short $</button>' +
+    '<button class="fbtn" data-sort="mean_fill">Fill %</button>';
+
+  var maxShort = Math.max.apply(null, D.accounts.map(function (x) { return x.short_dollars; }));
+  var rowsEl = document.getElementById("rows");
+
+  function render() {
+    var list = D.accounts.filter(function (a) { return !activeMetro || a.metro === activeMetro; });
+    list = list.slice().sort(function (a, b) {
+      return sortKey === "mean_fill" ? a.mean_fill - b.mean_fill : b.short_dollars - a.short_dollars;
+    });
+    document.getElementById("count").textContent = list.length + " account" + (list.length === 1 ? "" : "s");
+    rowsEl.innerHTML = list.map(function (a, i) {
+      var w = Math.max(3, (a.short_dollars / maxShort) * 100);
+      var skus = a.items.length
+        ? a.items.map(function (it) {
+            return '<div class="sku"><span class="sn">' + it[0] + '</span><span class="su">' + it[1] + '</span><span class="sc">' + it[2] + '× missed</span></div>';
+          }).join("")
+        : '<div class="sku-none">No single SKU repeats — shorts are spread across one-off items.</div>';
+      return '<div class="arow" data-i="' + i + '">' +
+          '<span class="caret">▸</span>' +
+          '<div class="acct"><div class="an">' + a.business + '</div><div class="am">' + a.metro + ' · ' + a.orders + ' orders</div></div>' +
+          '<div class="ord">' + a.orders + '</div>' +
+          '<div class="fillcell"><span class="chip ' + sev(a.mean_fill) + '">' + a.mean_fill.toFixed(1) + '%</span></div>' +
+          '<div class="shortcell"><span class="minibar" style="width:' + (w * 0.55) + 'px"></span><span class="sd">' + usd(a.short_dollars) + '</span></div>' +
+        '</div>' +
+        '<div class="drawer"><div class="dh">Chronic short-picks — pre-check before picking</div><div class="skus">' + skus + '</div></div>';
+    }).join("");
+  }
+
+  fEl.addEventListener("click", function (e) {
+    var b = e.target.closest(".fbtn"); if (!b) return;
+    if (b.dataset.f) {
+      activeMetro = b.dataset.f === "all" ? null : b.dataset.f;
+      fEl.querySelectorAll("[data-f]").forEach(function (x) { x.classList.toggle("on", x === b); });
+      metroEl.querySelectorAll(".metro").forEach(function (x) { x.classList.toggle("active", x.dataset.metro === activeMetro); });
+    } else if (b.dataset.sort) {
+      sortKey = b.dataset.sort;
+      fEl.querySelectorAll("[data-sort]").forEach(function (x) { x.classList.toggle("on", x === b); });
+    }
+    render();
+  });
+
+  metroEl.addEventListener("click", function (e) {
+    var mm = e.target.closest(".metro"); if (!mm) return;
+    var name = mm.dataset.metro;
+    activeMetro = (activeMetro === name) ? null : name;
+    metroEl.querySelectorAll(".metro").forEach(function (x) { x.classList.toggle("active", x.dataset.metro === activeMetro); });
+    fEl.querySelectorAll("[data-f]").forEach(function (x) { x.classList.toggle("on", (x.dataset.f === (activeMetro || "all"))); });
+    render();
+  });
+
+  rowsEl.addEventListener("click", function (e) {
+    var r = e.target.closest(".arow"); if (!r) return;
+    r.classList.toggle("open");
+  });
+
+  render();
+
+  // ---- featured cards
+  document.getElementById("feat").innerHTML = D.featured.map(function (c) {
+    var skus = c.items.map(function (it) {
+      return '<div class="sku"><span class="sn">' + it[0] + '</span><span class="su">' + it[1] + '</span><span class="sc">' + it[2] + '×</span></div>';
+    }).join("");
+    return '<div class="card flag">' +
+      '<div class="ctop"><span class="cname">' + c.business + '</span><span class="cmetro">' + c.metro + '</span></div>' +
+      '<div style="font-size:12.5px;color:var(--muted)">' + c.sub + '</div>' +
+      '<div class="cstats">' +
+        '<div class="cstat loss"><div class="cv">' + usd(c.short_dollars) + '</div><div class="cl">short</div></div>' +
+        '<div class="cstat"><div class="cv">' + c.mean_fill.toFixed(1) + '%</div><div class="cl">mean fill</div></div>' +
+        '<div class="cstat"><div class="cv">' + c.orders + '</div><div class="cl">orders</div></div>' +
+      '</div>' +
+      '<div class="plh">◇ Pre-check list — flag these before the pick</div>' +
+      '<div class="precheck">' + skus + '</div>' +
+    '</div>';
+  }).join("");
+
+  // ---- systemic RD stockouts (chain-wide)
+  var maxMiss = Math.max.apply(null, D.chain_wide.map(function (x) { return x.misses; }));
+  document.getElementById("chain").innerHTML = D.chain_wide.map(function (x) {
+    var w = Math.max(3, (x.misses / maxMiss) * 100);
+    return '<div class="crow">' +
+      '<span class="cmetros">' + x.metros + ' metros</span>' +
+      '<span class="citem">' + x.item + '</span>' +
+      '<span class="cupc">UPC ' + x.upc + '</span>' +
+      '<span class="cmiss"><span class="cmbar" style="width:' + (w * 0.55) + 'px"></span><span class="cmn">' + x.misses + '× short</span></span>' +
+    '</div>';
+  }).join("");
+})();
+</script>
+
+<!-- ============ GATE FLOW (reuses SNAP Apps Script endpoint + srb_token, identical to sibling-fact-find) ============ -->
+<script>
+const ENDPOINT='https://script.google.com/macros/s/AKfycbz4ial75YjPQODBlfOFZJJWeRDQn7MI9KT6UrfKUGkR1VAHhy7Ns07y1QT_tqfl2D1L/exec';
+const SITE='sibling';
+const DEV=location.hostname==='localhost'||location.hostname==='127.0.0.1'||location.protocol==='file:';
+let GUSER={email:'',name:'',company:'',phone:''};
+
+function jsonp(params){return new Promise(res=>{const fn='_j'+Math.random().toString(36).slice(2);const s=document.createElement('script');window[fn]=d=>{res(d||{});delete window[fn];s.remove();};s.onerror=()=>{res({ok:false,error:'network'});s.remove();};s.src=ENDPOINT+'?'+new URLSearchParams(Object.assign({},params,{callback:fn}));document.body.appendChild(s);});}
+function logNow(type,data){ if(!GUSER.email||DEV)return; jsonp({mode:'log',site:SITE,email:GUSER.email,type:'leakage:'+type,data:JSON.stringify(data).slice(0,40000)}); }
+
+function startApp(){
+  document.getElementById('app').style.display='';
+  logNow('session_start',{ua:navigator.userAgent.slice(0,120),tz:Intl.DateTimeFormat().resolvedOptions().timeZone});
+}
+
+/* ---- gate flow (mirrors sibling-fact-find exactly: email -> code -> verify -> srb_token, 30-day session) ---- */
+(function initGate(){
+  const gate=document.getElementById('gate');
+  function gmsg(t,ok){const m=document.getElementById('gMsg');m.style.color=ok?'#7ddba0':'#f0a58f';m.textContent=t||'';}
+  function unlock(){gate.style.display='none';startApp();}
+  if(DEV){GUSER={email:'dev@local',name:'Preview',company:'',phone:''};unlock();return;}
+  let tok=null;try{tok=JSON.parse(localStorage.getItem('srb_token')||'null');}catch(e){}
+  if(tok&&tok.email&&(Date.now()-tok.ts)<30*864e5){GUSER=tok;unlock();return;}
+  document.getElementById('gSend').onclick=async()=>{
+    const email=document.getElementById('gEmail').value.trim();
+    if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){gmsg('Enter a valid email');return;}
+    GUSER={email,name:document.getElementById('gName').value.trim(),company:document.getElementById('gCo').value.trim(),phone:document.getElementById('gPhone').value.trim()};
+    gmsg('Sending…',true);
+    const r=await jsonp({mode:'code',site:SITE,email,name:GUSER.name,company:GUSER.company,phone:GUSER.phone});
+    jsonp({mode:'log',site:SITE,email,type:'leakage:contact',data:JSON.stringify(GUSER)});
+    if(r.ok){document.getElementById('gEmailShow').textContent=email;document.getElementById('gstep1').style.display='none';document.getElementById('gstep2').style.display='';gmsg('Code sent — check your email.',true);}
+    else gmsg(r.error||'Could not send code');
+  };
+  document.getElementById('gVerify').onclick=async()=>{
+    const c=document.getElementById('gCode').value.trim();if(c.length<6){gmsg('Enter the 6-digit code');return;}
+    gmsg('Verifying…',true);
+    const r=await jsonp({mode:'verify',site:SITE,email:GUSER.email,code:c});
+    if(r.ok){try{localStorage.setItem('srb_token',JSON.stringify(Object.assign({ts:Date.now()},GUSER)));}catch(e){}logNow('login',GUSER);unlock();}
+    else gmsg(r.error||'Wrong code');
+  };
+  document.getElementById('gBack').onclick=()=>{document.getElementById('gstep2').style.display='none';document.getElementById('gstep1').style.display='';gmsg('');};
+})();
+</script>
+</body>
+</html>
